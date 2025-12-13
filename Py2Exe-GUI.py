@@ -15,8 +15,9 @@ def select_file():
         entry_file.insert(0, file_path)
         # 自动填充输出目录为脚本所在文件夹
         auto_output_dir = os.path.dirname(file_path)
-        entry_output.delete(0, tk.END)
-        entry_output.insert(0, auto_output_dir)
+        if not entry_output.get().strip():  # 仅在为空时自动填充
+            entry_output.delete(0, tk.END)
+            entry_output.insert(0, auto_output_dir)
 
 def select_output():
     output_dir = filedialog.askdirectory(title="选择输出目录")
@@ -28,12 +29,18 @@ def build_exe():
     script_path = entry_file.get().strip()
     output_dir = entry_output.get().strip()
 
-    if not script_path or not os.path.isfile(script_path):
-        messagebox.showerror("错误", "请选择有效的Python脚本文件！")
+    if not script_path:
+        messagebox.showerror("错误", "请选择要打包的Python脚本文件！")
+        return
+    if not os.path.isfile(script_path):
+        messagebox.showerror("错误", "脚本文件路径无效或不存在！")
         return
 
-    if not output_dir or not os.path.isdir(output_dir):
-        messagebox.showerror("错误", "请选择有效的输出目录！")
+    if not output_dir:
+        messagebox.showerror("错误", "请选择输出目录！")
+        return
+    if not os.path.isdir(output_dir):
+        messagebox.showerror("错误", "输出目录路径无效或不存在！")
         return
 
     onefile = var_onefile.get()
@@ -52,14 +59,13 @@ def build_exe():
 
     cmd.append(script_path)
 
-    # 清空并显示日志
+    # 清空日志并显示命令
     log_text.delete(1.0, tk.END)
     log_text.insert(tk.END, "开始打包...\n\n")
     log_text.insert(tk.END, "执行命令： " + " ".join(cmd) + "\n\n")
     log_text.see(tk.END)
-    log_text.update_idletasks()
 
-    # 禁用打包按钮，防止重复点击
+    # 禁用按钮 + 启动进度条
     btn_build.config(state="disabled")
     progress_bar.start()
 
@@ -83,53 +89,57 @@ def build_exe():
 
             process.wait()
 
-            # 清理临时文件
+            # 清理 build 文件夹和 .spec 文件
             work_dir = os.path.dirname(script_path)
             build_dir = os.path.join(work_dir, "build")
-            spec_file = os.path.join(work_dir, os.path.basename(script_path).rsplit(".", 1)[0] + ".spec")
+            spec_name = os.path.basename(script_path).rsplit(".", 1)[0] + ".spec"
+            spec_path = os.path.join(work_dir, spec_name)
 
             if os.path.exists(build_dir):
-                shutil.rmtree(build_dir)
-            if os.path.exists(spec_file):
-                os.remove(spec_file)
+                shutil.rmtree(build_dir, ignore_errors=True)
+            if os.path.exists(spec_path):
+                os.remove(spec_path)
 
+            # 判断结果
             if process.returncode == 0:
-                exe_name = os.path.basename(script_path).rsplit(".", 1)[0] + ".exe"
-                exe_path = os.path.join(output_dir, exe_name if onefile else os.path.basename(script_path).rsplit(".", 1)[0], exe_name)
-                log_text.insert(tk.END, "\n打包成功！\n")
+                base_name = os.path.basename(script_path).rsplit(".", 1)[0]
+                if onefile:
+                    exe_path = os.path.join(output_dir, base_name + ".exe")
+                else:
+                    exe_path = os.path.join(output_dir, base_name, base_name + ".exe")
+
+                log_text.insert(tk.END, "\n=== 打包成功 ===\n")
                 log_text.insert(tk.END, f"EXE 文件位置：{exe_path}\n")
-                messagebox.showinfo("成功", f"打包完成！\nEXE 文件已保存至：\n{exe_path}")
+                messagebox.showinfo("成功", f"打包完成！\n\nEXE 文件已保存至：\n{exe_path}")
             else:
-                log_text.insert(tk.END, "\n打包失败，请查看上方日志。\n")
+                log_text.insert(tk.END, "\n=== 打包失败 ===\n请查看上方日志查找错误原因。\n")
                 messagebox.showerror("失败", "打包过程中出现错误，请查看日志详情。")
 
+        except FileNotFoundError:
+            log_text.insert(tk.END, "\n错误：未找到 pyinstaller 命令。\n请确保已安装 PyInstaller（pip install pyinstaller）\n")
+            messagebox.showerror("错误", "未找到 pyinstaller。\n请在终端运行：pip install pyinstaller")
         except Exception as e:
             log_text.insert(tk.END, f"\n异常：{str(e)}\n")
             messagebox.showerror("异常", f"运行 PyInstaller 时发生错误：{str(e)}")
 
         finally:
-            # 恢复界面
             progress_bar.stop()
             btn_build.config(state="normal")
 
-    # 子线程执行打包
     threading.Thread(target=run_packaging, daemon=True).start()
 
 # 主窗口
 root = tk.Tk()
-root.title("PyInstaller 可视化打包工具 v1.0")
+root.title("PyInstaller 可视化打包工具 v1.0.1")
 root.geometry("720x580")
 root.resizable(False, False)
 
-# 主框架
 main_frame = ttk.Frame(root, padding="20")
 main_frame.pack(fill=tk.BOTH, expand=True)
 
-# 标题
 title_label = ttk.Label(main_frame, text="Python 脚本打包为 EXE", font=("Segoe UI", 16, "bold"))
 title_label.pack(pady=(0, 20))
 
-# 输入区域
 input_frame = ttk.LabelFrame(main_frame, text=" 基本设置 ", padding="15")
 input_frame.pack(fill=tk.X, pady=(0, 15))
 
@@ -143,7 +153,6 @@ entry_output = ttk.Entry(input_frame, width=65)
 entry_output.grid(row=1, column=1, padx=10, pady=8)
 ttk.Button(input_frame, text="浏览...", command=select_output).grid(row=1, column=2, pady=8)
 
-# 选项区域
 options_frame = ttk.LabelFrame(main_frame, text=" 打包选项 ", padding="15")
 options_frame.pack(fill=tk.X, pady=(0, 20))
 
@@ -153,15 +162,12 @@ ttk.Checkbutton(options_frame, text="打包为单个 EXE 文件（--onefile）",
 var_windowed = tk.BooleanVar(value=True)
 ttk.Checkbutton(options_frame, text="无控制台窗口（--windowed，推荐用于GUI程序）", variable=var_windowed).pack(anchor=tk.W, pady=5)
 
-# 开始打包按钮
 btn_build = ttk.Button(main_frame, text="开始打包", command=build_exe, style="Accent.TButton")
 btn_build.pack(pady=10)
 
-# 进度条
 progress_bar = ttk.Progressbar(main_frame, mode='indeterminate')
 progress_bar.pack(fill=tk.X, pady=(0, 15))
 
-# 日志区域
 log_frame = ttk.LabelFrame(main_frame, text=" 打包日志 ", padding="10")
 log_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -172,7 +178,6 @@ scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=log_text.yview)
 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 log_text.configure(yscrollcommand=scrollbar.set)
 
-# 初始化提示
 log_text.insert(tk.END, "就绪。请选择脚本文件后点击“开始打包”。\n")
 log_text.insert(tk.END, "打包过程中请勿关闭窗口。\n")
 

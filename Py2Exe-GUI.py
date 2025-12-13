@@ -4,6 +4,36 @@ import os
 import subprocess
 import threading
 import shutil
+import urllib.request
+import json
+
+# GitHub API URL（raw JSON，无需认证）
+VERSION_URL = "https://api.github.com/repos/duanjianguanghuan/pyinstaller-gui-tool/releases/latest"
+
+CURRENT_VERSION = "1.1"
+
+def check_version():
+    def run_check():
+        try:
+            with urllib.request.urlopen(VERSION_URL, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                latest_tag = data.get("tag_name", "").strip("v")
+                if latest_tag and latest_tag > CURRENT_VERSION:
+                    messagebox.showwarning(
+                        "发现新版本",
+                        f"当前版本：{CURRENT_VERSION}\n最新版本：{latest_tag}\n\n请访问 GitHub 下载最新版：\n"
+                        "https://github.com/duanjianguanghuan/pyinstaller-gui-tool/releases"
+                    )
+                else:
+                    log_text.insert(tk.END, "已是最新版本。\n")
+        except urllib.error.URLError:
+            log_text.insert(tk.END, "网络连接失败，无法检查版本更新。\n")
+        except Exception as e:
+            log_text.insert(tk.END, f"版本检查出错：{str(e)}\n")
+
+    threading.Thread(target=run_check, daemon=True).start()
+    log_text.insert(tk.END, "正在检查版本更新...\n")
+    log_text.see(tk.END)
 
 def select_file():
     file_path = filedialog.askopenfilename(
@@ -13,11 +43,9 @@ def select_file():
     if file_path:
         entry_file.delete(0, tk.END)
         entry_file.insert(0, file_path)
-        # 自动填充输出目录为脚本所在文件夹
-        auto_output_dir = os.path.dirname(file_path)
-        if not entry_output.get().strip():  # 仅在为空时自动填充
+        if not entry_output.get().strip():
             entry_output.delete(0, tk.END)
-            entry_output.insert(0, auto_output_dir)
+            entry_output.insert(0, os.path.dirname(file_path))
 
 def select_output():
     output_dir = filedialog.askdirectory(title="选择输出目录")
@@ -46,7 +74,6 @@ def build_exe():
     onefile = var_onefile.get()
     windowed = var_windowed.get()
 
-    # 构建PyInstaller命令
     cmd = ["pyinstaller", "--clean", "--distpath", output_dir]
 
     if onefile:
@@ -59,13 +86,11 @@ def build_exe():
 
     cmd.append(script_path)
 
-    # 清空日志并显示命令
     log_text.delete(1.0, tk.END)
     log_text.insert(tk.END, "开始打包...\n\n")
     log_text.insert(tk.END, "执行命令： " + " ".join(cmd) + "\n\n")
     log_text.see(tk.END)
 
-    # 禁用按钮 + 启动进度条
     btn_build.config(state="disabled")
     progress_bar.start()
 
@@ -89,7 +114,6 @@ def build_exe():
 
             process.wait()
 
-            # 清理 build 文件夹和 .spec 文件
             work_dir = os.path.dirname(script_path)
             build_dir = os.path.join(work_dir, "build")
             spec_name = os.path.basename(script_path).rsplit(".", 1)[0] + ".spec"
@@ -100,7 +124,6 @@ def build_exe():
             if os.path.exists(spec_path):
                 os.remove(spec_path)
 
-            # 判断结果
             if process.returncode == 0:
                 base_name = os.path.basename(script_path).rsplit(".", 1)[0]
                 if onefile:
@@ -130,15 +153,21 @@ def build_exe():
 
 # 主窗口
 root = tk.Tk()
-root.title("PyInstaller 可视化打包工具 v1.0.1")
-root.geometry("720x580")
+root.title(f"PyInstaller 可视化打包工具 v{CURRENT_VERSION}")
+root.geometry("720x620")
 root.resizable(False, False)
 
 main_frame = ttk.Frame(root, padding="20")
 main_frame.pack(fill=tk.BOTH, expand=True)
 
-title_label = ttk.Label(main_frame, text="Python 脚本打包为 EXE", font=("Segoe UI", 16, "bold"))
-title_label.pack(pady=(0, 20))
+title_frame = ttk.Frame(main_frame)
+title_frame.pack(pady=(0, 20))
+
+title_label = ttk.Label(title_frame, text="Python 脚本打包为 EXE", font=("Segoe UI", 16, "bold"))
+title_label.pack()
+
+version_btn = ttk.Button(title_frame, text="检查更新", command=check_version)
+version_btn.pack(pady=5)
 
 input_frame = ttk.LabelFrame(main_frame, text=" 基本设置 ", padding="15")
 input_frame.pack(fill=tk.X, pady=(0, 15))
@@ -178,7 +207,12 @@ scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=log_text.yview)
 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 log_text.configure(yscrollcommand=scrollbar.set)
 
+log_text.insert(tk.END, f"PyInstaller 可视化打包工具 v{CURRENT_VERSION}\n")
+log_text.insert(tk.END, "项目地址：https://github.com/duanjianguanghuan/pyinstaller-gui-tool\n\n")
 log_text.insert(tk.END, "就绪。请选择脚本文件后点击“开始打包”。\n")
-log_text.insert(tk.END, "打包过程中请勿关闭窗口。\n")
+log_text.insert(tk.END, "点击上方“检查更新”可检测最新版本。\n")
+
+# 启动时自动检查一次版本（可选，可注释掉关闭）
+# check_version()
 
 root.mainloop()

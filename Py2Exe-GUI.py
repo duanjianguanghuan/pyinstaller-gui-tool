@@ -7,33 +7,37 @@ import shutil
 import urllib.request
 import json
 
-# GitHub API URL（raw JSON，无需认证）
+# GitHub API（最新 release）
 VERSION_URL = "https://api.github.com/repos/duanjianguanghuan/pyinstaller-gui-tool/releases/latest"
 
-CURRENT_VERSION = "1.1"
+CURRENT_VERSION = "1.1.1"
 
 def check_version():
     def run_check():
         try:
-            with urllib.request.urlopen(VERSION_URL, timeout=5) as response:
+            with urllib.request.urlopen(VERSION_URL, timeout=8) as response:
                 data = json.loads(response.read().decode())
-                latest_tag = data.get("tag_name", "").strip("v")
+                latest_tag = data.get("tag_name", "").lstrip("v")
                 if latest_tag and latest_tag > CURRENT_VERSION:
                     messagebox.showwarning(
                         "发现新版本",
-                        f"当前版本：{CURRENT_VERSION}\n最新版本：{latest_tag}\n\n请访问 GitHub 下载最新版：\n"
+                        f"当前版本：{CURRENT_VERSION}\n"
+                        f"最新版本：{latest_tag}\n\n"
+                        "请访问 GitHub 下载最新版：\n"
                         "https://github.com/duanjianguanghuan/pyinstaller-gui-tool/releases"
                     )
                 else:
-                    log_text.insert(tk.END, "已是最新版本。\n")
+                    log_text.insert(tk.END, "当前已是最新版本。\n")
         except urllib.error.URLError:
-            log_text.insert(tk.END, "网络连接失败，无法检查版本更新。\n")
-        except Exception as e:
-            log_text.insert(tk.END, f"版本检查出错：{str(e)}\n")
+            log_text.insert(tk.END, "无法连接网络，跳过版本检查。\n")
+        except Exception:
+            log_text.insert(tk.END, "版本检查失败。\n")
+        finally:
+            log_text.see(tk.END)
 
-    threading.Thread(target=run_check, daemon=True).start()
-    log_text.insert(tk.END, "正在检查版本更新...\n")
+    log_text.insert(tk.END, "正在检查更新...\n")
     log_text.see(tk.END)
+    threading.Thread(target=run_check, daemon=True).start()
 
 def select_file():
     file_path = filedialog.askopenfilename(
@@ -88,7 +92,7 @@ def build_exe():
 
     log_text.delete(1.0, tk.END)
     log_text.insert(tk.END, "开始打包...\n\n")
-    log_text.insert(tk.END, "执行命令： " + " ".join(cmd) + "\n\n")
+    log_text.insert(tk.END, f"执行命令： {' '.join(cmd)}\n\n")
     log_text.see(tk.END)
 
     btn_build.config(state="disabled")
@@ -107,13 +111,18 @@ def build_exe():
                 universal_newlines=True
             )
 
-            for line in process.stdout:
-                log_text.insert(tk.END, line)
-                log_text.see(tk.END)
-                log_text.update_idletasks()
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if line:
+                    log_text.insert(tk.END, line)
+                    log_text.see(tk.END)
+                    log_text.update_idletasks()
 
-            process.wait()
+            return_code = process.poll()
 
+            # 清理临时文件
             work_dir = os.path.dirname(script_path)
             build_dir = os.path.join(work_dir, "build")
             spec_name = os.path.basename(script_path).rsplit(".", 1)[0] + ".spec"
@@ -124,7 +133,8 @@ def build_exe():
             if os.path.exists(spec_path):
                 os.remove(spec_path)
 
-            if process.returncode == 0:
+            # 结果判断
+            if return_code == 0:
                 base_name = os.path.basename(script_path).rsplit(".", 1)[0]
                 if onefile:
                     exe_path = os.path.join(output_dir, base_name + ".exe")
@@ -144,10 +154,10 @@ def build_exe():
         except Exception as e:
             log_text.insert(tk.END, f"\n异常：{str(e)}\n")
             messagebox.showerror("异常", f"运行 PyInstaller 时发生错误：{str(e)}")
-
         finally:
             progress_bar.stop()
             btn_build.config(state="normal")
+            log_text.see(tk.END)
 
     threading.Thread(target=run_packaging, daemon=True).start()
 
@@ -210,9 +220,7 @@ log_text.configure(yscrollcommand=scrollbar.set)
 log_text.insert(tk.END, f"PyInstaller 可视化打包工具 v{CURRENT_VERSION}\n")
 log_text.insert(tk.END, "项目地址：https://github.com/duanjianguanghuan/pyinstaller-gui-tool\n\n")
 log_text.insert(tk.END, "就绪。请选择脚本文件后点击“开始打包”。\n")
-log_text.insert(tk.END, "点击上方“检查更新”可检测最新版本。\n")
-
-# 启动时自动检查一次版本（可选，可注释掉关闭）
-# check_version()
+log_text.insert(tk.END, "可点击上方“检查更新”检测最新版本。\n")
+log_text.see(tk.END)
 
 root.mainloop()
